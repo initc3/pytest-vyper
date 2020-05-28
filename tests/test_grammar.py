@@ -7,8 +7,9 @@ import pytest
 from hypothesis import HealthCheck, assume, given
 from hypothesis.extra.lark import LarkStrategy
 
-from conftest import get_lark_grammar
 from vyper.ast import Module, parse_to_ast
+
+from pytest_vyper.grammar import get_lark_grammar
 
 
 def test_basic_grammar(lark_grammar):
@@ -38,7 +39,7 @@ def test_basic_grammar_empty(lark_grammar):
 
 def utf8_encodable(terminal: str) -> bool:
     try:
-        if '\x00' not in terminal and '\\ ' not in terminal and '\x0c' not in terminal:
+        if "\x00" not in terminal and "\\ " not in terminal and "\x0c" not in terminal:
             terminal.encode("utf-8-sig")
             return True
         else:
@@ -65,9 +66,9 @@ class GrammarStrategy(LarkStrategy):
         super().draw_symbol(data, symbol, draw_state)
         try:
             compile(
-                source="".join(
-                    draw_state.result[count:]
-                ).replace("contract", "class").replace("struct", "class"),  # HACK: Python ast.parse
+                source="".join(draw_state.result[count:])
+                .replace("contract", "class")
+                .replace("struct", "class"),  # HACK: Python ast.parse
                 filename="<string>",
                 mode="exec",
             )
@@ -101,13 +102,9 @@ def has_no_docstrings(c):
 
 
 @pytest.mark.fuzzing
-@given(
-    code=from_grammar().filter(lambda c: has_no_docstrings(c))
-)
+@given(code=from_grammar().filter(lambda c: has_no_docstrings(c)))
 @hypothesis.settings(
-    deadline=400,
-    max_examples=500,
-    suppress_health_check=(HealthCheck.too_slow, )
+    deadline=400, max_examples=500, suppress_health_check=(HealthCheck.too_slow,)
 )
 def test_grammar_bruteforce(code):
     if utf8_encodable(code):

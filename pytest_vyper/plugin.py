@@ -8,13 +8,16 @@ from web3.providers.eth_tester import EthereumTesterProvider
 
 from vyper import compiler
 
-from .grammar.conftest import get_lark_grammar
+from .grammar import LARK_GRAMMAR
 
-LARK_GRAMMAR = get_lark_grammar()
+
+@pytest.fixture
+def lark_grammar():
+    return LARK_GRAMMAR
 
 
 class VyperMethod:
-    ALLOWED_MODIFIERS = {'call', 'estimateGas', 'transact', 'buildTransaction'}
+    ALLOWED_MODIFIERS = {"call", "estimateGas", "transact", "buildTransaction"}
 
     def __init__(self, function, normalizers=None):
         self._function = function
@@ -25,22 +28,24 @@ class VyperMethod:
 
     def __prepared_function(self, *args, **kwargs):
         if not kwargs:
-            modifier, modifier_dict = 'call', {}
+            modifier, modifier_dict = "call", {}
             fn_abi = [
                 x
-                for x
-                in self._function.contract_abi
-                if x.get('name') == self._function.function_identifier
+                for x in self._function.contract_abi
+                if x.get("name") == self._function.function_identifier
             ].pop()
             # To make tests faster just supply some high gas value.
-            modifier_dict.update({'gas': fn_abi.get('gas', 0) + 50000})
+            modifier_dict.update({"gas": fn_abi.get("gas", 0) + 50000})
         elif len(kwargs) == 1:
             modifier, modifier_dict = kwargs.popitem()
             if modifier not in self.ALLOWED_MODIFIERS:
                 raise TypeError(
-                    f"The only allowed keyword arguments are: {self.ALLOWED_MODIFIERS}")
+                    f"The only allowed keyword arguments are: {self.ALLOWED_MODIFIERS}"
+                )
         else:
-            raise TypeError(f"Use up to one keyword argument, one of: {self.ALLOWED_MODIFIERS}")
+            raise TypeError(
+                f"Use up to one keyword argument, one of: {self.ALLOWED_MODIFIERS}"
+            )
         return getattr(self._function(*args), modifier)(modifier_dict)
 
 
@@ -51,25 +56,23 @@ class VyperContract:
     This call
     > contract.withdraw(amount, transact={'from': eth.accounts[1], 'gas': 100000, ...})
     is equivalent to this call in the classic contract:
-    > contract.functions.withdraw(amount).transact({'from': eth.accounts[1], 'gas': 100000, ...})
+    > contract.functions.withdraw(amount).transact(
+        {'from': eth.accounts[1], 'gas': 100000, ...})
     """
 
     def __init__(self, classic_contract, method_class=VyperMethod):
         classic_contract._return_data_normalizers += CONCISE_NORMALIZERS
         self._classic_contract = classic_contract
         self.address = self._classic_contract.address
-        protected_fn_names = [fn for fn in dir(self) if not fn.endswith('__')]
+        protected_fn_names = [fn for fn in dir(self) if not fn.endswith("__")]
         for fn_name in self._classic_contract.functions:
             # Override namespace collisions
             if fn_name in protected_fn_names:
                 _concise_method = mk_collision_prop(fn_name)
             else:
-                _classic_method = getattr(
-                    self._classic_contract.functions,
-                    fn_name)
+                _classic_method = getattr(self._classic_contract.functions, fn_name)
                 _concise_method = method_class(
-                    _classic_method,
-                    self._classic_contract._return_data_normalizers
+                    _classic_method, self._classic_contract._return_data_normalizers
                 )
             setattr(self, fn_name, _concise_method)
 
@@ -79,7 +82,7 @@ class VyperContract:
 
 
 def _none_addr(datatype, data):
-    if datatype == 'address' and int(data, base=16) == 0:
+    if datatype == "address" and int(data, base=16) == 0:
         return (datatype, None)
     else:
         return (datatype, data)
@@ -89,8 +92,20 @@ CONCISE_NORMALIZERS = (_none_addr,)
 
 
 @pytest.fixture
-def tester():
-    custom_genesis = PyEVMBackend._generate_genesis_params(overrides={'gas_limit': 4500000})
+def _VyperMethod():
+    return VyperMethod
+
+
+@pytest.fixture
+def _VyperContract():
+    return VyperContract
+
+
+@pytest.fixture
+def ethereum_tester():
+    custom_genesis = PyEVMBackend._generate_genesis_params(
+        overrides={"gas_limit": 4500000}
+    )
     backend = PyEVMBackend(genesis_parameters=custom_genesis)
     return EthereumTester(backend=backend)
 
@@ -100,44 +115,47 @@ def zero_gas_price_strategy(web3, transaction_params=None):
 
 
 @pytest.fixture
-def w3(tester):
-    w3 = Web3(EthereumTesterProvider(tester))
+def w3(ethereum_tester):
+    w3 = Web3(EthereumTesterProvider(ethereum_tester))
     w3.eth.setGasPriceStrategy(zero_gas_price_strategy)
     return w3
 
 
 def _get_contract(w3, source_code, *args, **kwargs):
+    contract_factory_class = kwargs.pop("contract_factory_class", VyperContract)
     out = compiler.compile_code(
         source_code,
-        ['abi', 'bytecode'],
-        interface_codes=kwargs.pop('interface_codes', None),
-        evm_version=kwargs.pop('evm_version', None),
+        ["abi", "bytecode"],
+        interface_codes=kwargs.pop("interface_codes", None),
+        evm_version=kwargs.pop("evm_version", None),
     )
     LARK_GRAMMAR.parse(source_code + "\n")  # Test grammar.
-    abi = out['abi']
-    bytecode = out['bytecode']
-    value = kwargs.pop('value_in_eth', 0) * 10 ** 18  # Handle deploying with an eth value.
+    abi = out["abi"]
+    bytecode = out["bytecode"]
+    value = (
+        kwargs.pop("value_in_eth", 0) * 10 ** 18
+    )  # Handle deploying with an eth value.
     c = w3.eth.contract(abi=abi, bytecode=bytecode)
     deploy_transaction = c.constructor(*args)
     tx_info = {
-        'from': w3.eth.accounts[0],
-        'value': value,
-        'gasPrice': 0,
+        "from": w3.eth.accounts[0],
+        "value": value,
+        "gasPrice": 0,
     }
     tx_info.update(kwargs)
     tx_hash = deploy_transaction.transact(tx_info)
-    address = w3.eth.getTransactionReceipt(tx_hash)['contractAddress']
+    address = w3.eth.getTransactionReceipt(tx_hash)["contractAddress"]
     contract = w3.eth.contract(
         address,
         abi=abi,
         bytecode=bytecode,
-        ContractFactoryClass=VyperContract,
+        ContractFactoryClass=contract_factory_class,
     )
     return contract
 
 
 @pytest.fixture
-def get_contract(w3):
+def get_vyper_contract(w3):
     def get_contract(source_code, *args, **kwargs):
         return _get_contract(w3, source_code, *args, **kwargs)
 
@@ -145,7 +163,7 @@ def get_contract(w3):
 
 
 @pytest.fixture
-def get_logs(w3):
+def get_vyper_logs(w3):
     def get_logs(tx_hash, c, event_name):
         tx_receipt = w3.eth.getTransactionReceipt(tx_hash)
         logs = c._classic_contract.events[event_name]().processReceipt(tx_receipt)
@@ -155,13 +173,19 @@ def get_logs(w3):
 
 
 @pytest.fixture
-def assert_tx_failed(tester):
+def assert_tx_failed(ethereum_tester):
     def assert_tx_failed(function_to_test, exception=TransactionFailed, exc_text=None):
-        snapshot_id = tester.take_snapshot()
+        snapshot_id = ethereum_tester.take_snapshot()
         with pytest.raises(exception) as excinfo:
             function_to_test()
-        tester.revert_to_snapshot(snapshot_id)
+        ethereum_tester.revert_to_snapshot(snapshot_id)
         if exc_text:
             assert exc_text in str(excinfo.value)
 
     return assert_tx_failed
+
+
+# Aliases, to provide the same "names" as in the vyper codebase
+tester = ethereum_tester
+get_contract = get_vyper_contract
+get_logs = get_vyper_logs

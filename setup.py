@@ -60,7 +60,7 @@ setup(
         "Operating System :: OS Independent",
         "License :: OSI Approved :: Apache Software License",
     ],
-    entry_points={"pytest11": ["vyper = pytest_vyper"]},
+    entry_points={"pytest11": ["vyper = pytest_vyper.plugin"]},
     extras_require=extras_require,
     package_data={"pytest_vyper": ["vyper.lark"]},
 )
