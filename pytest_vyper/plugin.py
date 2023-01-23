@@ -110,7 +110,7 @@ def ethereum_tester():
     return EthereumTester(backend=backend)
 
 
-def zero_gas_price_strategy(web3, transaction_params=None):
+def zero_gas_price_strategy(_web3, transaction_params=None):
     return 0  # zero gas price makes testing simpler.
 
 
