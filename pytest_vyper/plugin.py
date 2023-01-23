@@ -81,6 +81,20 @@ def _none_addr(datatype, data):
 CONCISE_NORMALIZERS = (_none_addr,)
 
 
+def pytest_addoption(parser):
+    parser.addoption("--no-optimize", action="store_true", help="disable asm and IR optimizations")
+
+
+@pytest.fixture(scope="module")
+def no_optimize(pytestconfig):
+    return pytestconfig.getoption("no_optimize")
+
+
+@pytest.fixture
+def keccak():
+    return Web3.keccak
+
+
 @pytest.fixture(scope="module")
 def tester():
     # set absurdly high gas limit so that london basefee never adjusts
@@ -124,7 +138,7 @@ def _get_contract(w3, source_code, no_optimize, *args, **kwargs):
     return w3.eth.contract(address, abi=abi, bytecode=bytecode, ContractFactoryClass=VyperContract)
 
 
-def _deploy_blueprint_for(w3, source_code, no_optimize=False, initcode_prefix=b"", **kwargs):
+def _deploy_blueprint_for(w3, source_code, no_optimize, initcode_prefix=b"", **kwargs):
     out = compiler.compile_code(
         source_code,
         ["abi", "bytecode"],
@@ -162,7 +176,7 @@ def _deploy_blueprint_for(w3, source_code, no_optimize=False, initcode_prefix=b"
 
 
 @pytest.fixture
-def deploy_blueprint_for(w3, no_optimize=False):
+def deploy_blueprint_for(w3, no_optimize):
     def deploy_blueprint_for(source_code, *args, **kwargs):
         return _deploy_blueprint_for(w3, source_code, no_optimize, *args, **kwargs)
 
@@ -170,7 +184,7 @@ def deploy_blueprint_for(w3, no_optimize=False):
 
 
 @pytest.fixture
-def get_vyper_contract(w3, no_optimize=False):
+def get_vyper_contract(w3, no_optimize):
     def get_contract(source_code, *args, **kwargs):
         return _get_contract(w3, source_code, no_optimize, *args, **kwargs)
 
@@ -179,9 +193,9 @@ def get_vyper_contract(w3, no_optimize=False):
 
 @pytest.fixture
 def get_vyper_logs(w3):
-    def get_logs(tx_hash, c, event_name):
+    def get_logs(tx_hash, contract, event_name):
         tx_receipt = w3.eth.get_transaction_receipt(tx_hash)
-        return c._classic_contract.events[event_name]().processReceipt(tx_receipt)
+        return contract._classic_contract.events[event_name]().processReceipt(tx_receipt)
 
     return get_logs
 
